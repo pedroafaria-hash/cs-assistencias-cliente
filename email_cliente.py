@@ -47,6 +47,40 @@ def _credenciais():
     return user, password
 
 
+def enviar_link_cliente(cliente_email: str, link: str, processo: str, obra_assunto: str) -> bool:
+    """Envia ao cliente, por email, o link da sua assistência (o mesmo que o
+    QR code aponta) — pedido do Pedro, Fase 4: "em frente ao link ou QR
+    code, um botão para enviar email para o cliente". Best-effort, nunca
+    levanta exceção — devolve False se as credenciais não estiverem
+    configuradas, o email for inválido, ou o envio falhar."""
+    if not cliente_email or "@" not in cliente_email:
+        return False
+    user, password = _credenciais()
+    if not user or not password:
+        return False
+    try:
+        corpo = (
+            f"Boa tarde,\n\n"
+            f"Segue o link para consultar e acompanhar a sua assistência da obra "
+            f"{obra_assunto} (processo {processo}):\n\n"
+            f"{link}\n\n"
+            "Pode usar este link para ver o estado dos pedidos já registados e "
+            "acrescentar novos (com fotos, se precisar).\n\n"
+            "Com os melhores cumprimentos,\nCS Construtora"
+        )
+        msg = MIMEText(corpo, "plain", "utf-8")
+        msg["Subject"] = f"Assistência Pós-Obra — {processo} ({obra_assunto})"
+        msg["From"] = user
+        msg["To"] = cliente_email
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls()
+            server.login(user, password)
+            server.sendmail(user, [cliente_email], msg.as_string())
+        return True
+    except Exception:
+        return False
+
+
 def notificar_novos_topicos(director_email: str, processo: str, obra_assunto: str,
                              cliente: str, itens: list) -> bool:
     """Envia um único email ao Diretor de Obra com todos os tópicos que o

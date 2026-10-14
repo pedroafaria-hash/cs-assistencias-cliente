@@ -165,6 +165,43 @@ def _dashboard_dto(conn, nome: str) -> None:
                     st.text_input("Link / QR code", value=_link_a, key=f"link_{_a['token']}")
                     st.image(qr.gerar_qr_png(_link_a), width=160)
 
+                    _email_default_a = _a.get("contacto") or ""
+                    if "@" not in _email_default_a:
+                        _email_default_a = ""
+                    _col_email_a, _col_btn_email_a = st.columns([3, 1])
+                    with _col_email_a:
+                        _email_cliente_a = st.text_input(
+                            "Email do cliente", value=_email_default_a, key=f"email_cliente_{_a['token']}",
+                        )
+                    with _col_btn_email_a:
+                        st.write("")
+                        st.write("")
+                        _enviar_email_a = st.button("✉️ Enviar", key=f"btn_email_{_a['token']}")
+                    if _enviar_email_a:
+                        if not _email_cliente_a or "@" not in _email_cliente_a:
+                            st.error("Indica um email válido.")
+                        elif email_cliente.enviar_link_cliente(
+                            _email_cliente_a, _link_a, _a["processo"], _a.get("obra_assunto") or "",
+                        ):
+                            st.success(f"Email enviado para {_email_cliente_a}.")
+                        else:
+                            st.error(
+                                "Não foi possível enviar o email — confirma se NOTIF_EMAIL_USER/"
+                                "NOTIF_EMAIL_PASSWORD estão configurados nos Secrets desta app."
+                            )
+
+                    st.divider()
+                    st.markdown("###### 🗂️ Tópicos desta assistência")
+                    _itens_a = db_cloud.listar_itens_leitura(conn, _a["token"])
+                    if not _itens_a:
+                        st.caption("Ainda sem tópicos.")
+                    else:
+                        for _it_a in _itens_a:
+                            _icone_a = _ICONE_ESTADO.get(_it_a["estado"], "⚪")
+                            st.markdown(f"{_icone_a} **{_it_a['topico']}** — {_it_a['estado'] or 'Pendente'}")
+                            if _it_a.get("descricao"):
+                                st.caption(_it_a["descricao"])
+
                     st.divider()
                     st.markdown("###### ➕ Adicionar tópico a esta assistência")
                     with st.form(f"form_novo_topico_dto_{_a['token']}", clear_on_submit=True):
