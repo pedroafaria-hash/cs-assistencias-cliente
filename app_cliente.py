@@ -38,6 +38,7 @@ import streamlit as st
 
 import db_cloud
 import email_cliente
+import pdf_cliente
 import qr
 
 # Mesma lista/ordem de `db_assist.ESTADOS_ITEM` (app local) — duplicada
@@ -48,6 +49,23 @@ ESTADOS_ITEM = ["Pendente", "Assumido", "Em Orçamento", "Resolvido"]
 _ICONE_ESTADO = {"Pendente": "🟡", "Assumido": "🔵", "Em Orçamento": "🟠", "Resolvido": "🟢"}
 
 st.set_page_config(page_title="Assistência Pós-Obra — CS Construtora", page_icon="🛠️", layout="centered")
+
+
+def _mostrar_item_dto(item: dict, mostrar_obra: bool = False) -> None:
+    """Mostra um tópico na listagem da app DTO — tópico/estado/descrição
+    (como já estava) e, Fase 4b (pedido do Pedro), a foto já inserida e o
+    fornecedor a que está entregue, quando existirem. A foto vem de
+    `itens_leitura_cloud.foto_bytes` (reduzida pela app local ao
+    sincronizar) como `memoryview` do psycopg2 — por isso o `bytes(...)`."""
+    _icone = _ICONE_ESTADO.get(item["estado"], "⚪")
+    _prefixo = f"{item.get('processo') or ''} — " if mostrar_obra and item.get("processo") else ""
+    st.markdown(f"{_icone} **{_prefixo}{item['topico']}** — {item['estado'] or 'Pendente'}")
+    if item.get("descricao"):
+        st.caption(item["descricao"])
+    if item.get("fornecedor_nomes"):
+        st.caption(f"🔧 Fornecedor: {item['fornecedor_nomes']}")
+    if item.get("foto_bytes"):
+        st.image(bytes(item["foto_bytes"]), width=220)
 
 
 def _url_base_app() -> str:
@@ -197,10 +215,7 @@ def _dashboard_dto(conn, nome: str) -> None:
                         st.caption("Ainda sem tópicos.")
                     else:
                         for _it_a in _itens_a:
-                            _icone_a = _ICONE_ESTADO.get(_it_a["estado"], "⚪")
-                            st.markdown(f"{_icone_a} **{_it_a['topico']}** — {_it_a['estado'] or 'Pendente'}")
-                            if _it_a.get("descricao"):
-                                st.caption(_it_a["descricao"])
+                            _mostrar_item_dto(_it_a)
 
                     st.divider()
                     st.markdown("###### ➕ Adicionar tópico a esta assistência")
@@ -256,6 +271,12 @@ def _dashboard_dto(conn, nome: str) -> None:
                 else [i for i in _itens_dto if (i["estado"] or "Pendente") == _filtro_estado_dto]
             )
             st.caption(f"{len(_itens_filtrados_dto)} tópico(s)")
+            st.download_button(
+                "🖨️ Exportar esta listagem em PDF",
+                data=pdf_cliente.gerar_pdf_listagem_dto(nome, _itens_filtrados_dto),
+                file_name=f"topicos_{nome.replace(' ', '_')}.pdf", mime="application/pdf",
+                key="btn_pdf_dto",
+            )
             for _item in _itens_filtrados_dto:
                 _icone = _ICONE_ESTADO.get(_item["estado"], "⚪")
                 with st.container(border=True):
@@ -265,6 +286,10 @@ def _dashboard_dto(conn, nome: str) -> None:
                     )
                     if _item.get("descricao"):
                         st.caption(_item["descricao"])
+                    if _item.get("fornecedor_nomes"):
+                        st.caption(f"🔧 Fornecedor: {_item['fornecedor_nomes']}")
+                    if _item.get("foto_bytes"):
+                        st.image(bytes(_item["foto_bytes"]), width=220)
                     _c_estado, _c_btn = st.columns([2, 1])
                     with _c_estado:
                         _indice_atual = ESTADOS_ITEM.index(_item["estado"]) if _item["estado"] in ESTADOS_ITEM else 0

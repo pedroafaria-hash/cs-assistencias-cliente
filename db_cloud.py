@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS itens_leitura_cloud (
     estado TEXT,
     origem TEXT,
     criado_em TEXT,
+    foto_bytes BYTEA,
+    fornecedor_nomes TEXT,
     PRIMARY KEY (token, item_id)
 );
 
@@ -252,6 +254,11 @@ def get_connection():
                 cur.execute("ALTER TABLE assistencias_cloud ADD COLUMN IF NOT EXISTS partilha_password_hash TEXT")
                 cur.execute("ALTER TABLE itens_cloud ADD COLUMN IF NOT EXISTS foto_nome TEXT")
                 cur.execute("ALTER TABLE itens_cloud ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'Cliente'")
+                # Fase 4b (pedido do Pedro): a listagem de tópicos na app DTO
+                # passa a mostrar a foto e os fornecedores afetos a cada
+                # tópico, não só topico/descrição/estado.
+                cur.execute("ALTER TABLE itens_leitura_cloud ADD COLUMN IF NOT EXISTS foto_bytes BYTEA")
+                cur.execute("ALTER TABLE itens_leitura_cloud ADD COLUMN IF NOT EXISTS fornecedor_nomes TEXT")
             conn.commit()
             _schema_pronto = True
         except Exception as exc:
@@ -391,15 +398,23 @@ def publicar_itens_leitura(conn, token: str, itens: list) -> None:
     cliente consultar "tarefas pendentes já abertas e o seu estado" — nunca
     é o cliente a mexer nisto, só o Pedro publica (ao gerar o link ou ao
     sincronizar). `itens`: lista de dicts com id/topico/descricao/estado/
-    origem/data_criacao (o formato que `db_assist.list_itens` já devolve)."""
+    origem/data_criacao (o formato que `db_assist.list_itens` já devolve),
+    mais opcionalmente `foto_bytes` (bytes já redimensionados/comprimidos
+    pela app local) e `fornecedor_nomes` (string, já junta com ", ") — Fase
+    4b, pedido do Pedro: "na listagem de tópicos... visualizar as fotos
+    inseridas e o fornecedor a que está entregue o tópico"."""
+    import psycopg2  # lazy, mesmo padrão de get_connection() — só é preciso aqui
     with conn.cursor() as cur:
         cur.execute("DELETE FROM itens_leitura_cloud WHERE token = %s", (token,))
         for item in itens:
             cur.execute(
-                "INSERT INTO itens_leitura_cloud (token, item_id, topico, descricao, estado, origem, criado_em) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO itens_leitura_cloud "
+                "(token, item_id, topico, descricao, estado, origem, criado_em, foto_bytes, fornecedor_nomes) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (token, item["id"], item["topico"], item.get("descricao") or "",
-                 item.get("estado") or "", item.get("origem") or "", str(item.get("data_criacao") or "")),
+                 item.get("estado") or "", item.get("origem") or "", str(item.get("data_criacao") or ""),
+                 psycopg2.Binary(item["foto_bytes"]) if item.get("foto_bytes") else None,
+                 item.get("fornecedor_nomes") or ""),
             )
     conn.commit()
 
@@ -410,7 +425,7 @@ def listar_itens_leitura(conn, token: str) -> list:
     cliente."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT item_id, topico, descricao, estado, origem, criado_em "
+            "SELECT item_id, topico, descricao, estado, origem, criado_em, foto_bytes, fornecedor_nomes "
             "FROM itens_leitura_cloud WHERE token = %s ORDER BY criado_em DESC, item_id DESC",
             (token,),
         )
@@ -620,6 +635,7 @@ def listar_itens_leitura_por_diretor(conn, obra_director: str) -> list:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT l.token, l.item_id, l.topico, l.descricao, l.estado, l.origem, l.criado_em, "
+            "       l.foto_bytes, l.fornecedor_nomes, "
             "       a.processo, a.obra_assunto, a.cliente "
             "FROM itens_leitura_cloud l JOIN assistencias_cloud a ON a.token = l.token "
             "WHERE a.obra_director = %s "
